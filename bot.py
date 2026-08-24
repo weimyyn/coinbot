@@ -146,7 +146,10 @@ async def process_news(callback: CallbackQuery, state: FSMContext):
     if not await is_allowed(callback.from_user.id):
         return
     await callback.answer()
-    await callback.message.answer("Напиши тикер (BTC, SOL, PEPE, WIF...):", reply_markup=back_button())
+    await callback.message.answer(
+        "Напиши тикер монеты (например: BTC, SOL, PEPE, WIF, BONK):",
+        reply_markup=back_button()
+    )
     await state.set_state(NewsState.waiting_for_coin)
 
 @dp.message(NewsState.waiting_for_coin)
@@ -157,38 +160,46 @@ async def get_news(message: Message, state: FSMContext):
     coin = message.text.strip().upper()
     await state.clear()
 
-    msg = await message.answer(f"🔍 Ищу новости по {coin}...")
+    msg = await message.answer(f"🔍 Ищу новости по <b>{coin}</b>...", parse_mode="HTML")
+
+    text = f"📰 <b>Новости по {coin}:</b>\n\n"
+    found = False
 
     try:
         async with aiohttp.ClientSession() as session:
-            url = f"https://cryptopanic.com/api/v1/posts/?auth_token=free&currencies={coin}&public=true"
-            async with session.get(url, timeout=10) as r:
-                data = await r.json()
-                results = data.get("results", [])
+            # Попытка 1: CryptoPanic
+            try:
+                url = f"https://cryptopanic.com/api/v1/posts/?auth_token=free&currencies={coin}&public=true"
+                async with session.get(url, timeout=8) as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        results = data.get("results", [])
+                        if results:
+                            found = True
+                            for post in results[:4]:
+                                title = post.get("title", "")[:65]
+                                link = post.get("url", "")
+                                text += f"• <a href='{link}'>{title}</a>\n"
+            except:
+                pass
 
-                if not results:
-                    await msg.edit_text(f"Новостей по {coin} не найдено.", reply_markup=back_button())
-                    return
+            # Если новостей нет — даём полезные ссылки
+            if not found:
+                text += "Прямые источники:\n\n"
+                text += f"• <a href='https://cryptopanic.com/news/{coin}/'>CryptoPanic</a>\n"
+                text += f"• <a href='https://www.coingecko.com/en/coins/{coin.lower()}'>CoinGecko</a>\n"
+                text += f"• <a href='https://news.google.com/search?q={coin}%20crypto&hl=ru'>Google News</a>\n"
+                text += f"• <a href='https://twitter.com/search?q=%24{coin}&f=live'>Twitter/X</a>\n"
 
-                text = f"📰 <b>{coin}:</b>\n\n"
-                for post in results[:4]:
-                    title = post.get("title", "")[:70]
-                    link = post.get("url", "")
-                    text += f"• <a href='{link}'>{title}</a>\n"
+        await msg.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_button())
 
-                await msg.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_button())
-    except:
-        await msg.edit_text("Не удалось получить новости.", reply_markup=back_button())
-
-@dp.message()
-async def fallback(message: Message):
-    if not await is_allowed(message.from_user.id):
-        return
-    await message.answer("Напиши /menu")
-
-async def main():
-    print("Бот запущен (краткие ответы)...")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    except Exception as e:
+        await msg.edit_text(
+            f"📰 По {coin}:\n\n"
+            f"• <a href='https://cryptopanic.com/news/{coin}/'>CryptoPanic</a>\n"
+            f"• <a href='https://news.google.com/search?q={coin}%20crypto'>Google News</a>\n"
+            f"• <a href='https://twitter.com/search?q=%24{coin}&f=live'>Twitter</a>",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=back_button()
+        )
