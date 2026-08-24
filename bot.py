@@ -6,7 +6,7 @@ from aiogram.types import Message
 import time
 
 # ================== ТВОИ ДАННЫЕ ==================
-BOT_TOKEN = "8965399377:AAFbqLoemmLeEqGhVu0fBYVDli6BpMa2wJk"
+BOT_TOKEN = "8965399377:AAFy0_rgg8vNtm-Ta-HEPwhC9oy3MQYbPqM"
 
 # Два человека, которым будут приходить сообщения
 USERS = [
