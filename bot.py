@@ -7,14 +7,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# ================== ТВОИ ДАННЫЕ ==================
 BOT_TOKEN = "8965399377:AAFy0_rgg8vNtm-Ta-HEPwhC9oy3MQYbPqM"
 
 ALLOWED_USERS = {
     6186773442,
     1122173232
 }
-# ================================================
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
@@ -41,7 +39,11 @@ def back_button():
 async def is_allowed(user_id: int) -> bool:
     return user_id in ALLOWED_USERS
 
-# ====================== АВТО УВЕДОМЛЕНИЯ О НОВЫХ МОНЕТАХ ======================
+def tv_link(symbol: str) -> str:
+    """Делает ссылку на TradingView"""
+    return f"https://www.tradingview.com/chart/?symbol={symbol.upper()}"
+
+# ====================== АВТО УВЕДОМЛЕНИЯ ======================
 async def monitor_new_coins():
     while True:
         try:
@@ -70,26 +72,19 @@ async def monitor_new_coins():
 
                 text = (
                     f"🚀 <b>Новая монета!</b>\n\n"
-                    f"<b>{name}</b> (${symbol})\n"
+                    f"<b>{name}</b> (<a href='{tv_link(symbol)}'>${symbol}</a>)\n"
                     f"CA: <code>{address}</code>\n"
                     f"Цена: <b>{price}</b>\n"
                     f"Изменение: <b>{change}%</b>\n\n"
-                    f"<a href='https://dexscreener.com/solana/{address}'>📊 График DexScreener</a>\n"
-                    f"<a href='https://www.tradingview.com/chart/?symbol={symbol}'>📈 TradingView</a>"
+                    f"<a href='https://dexscreener.com/solana/{address}'>📊 DexScreener</a> | "
+                    f"<a href='{tv_link(symbol)}'>📈 TradingView</a>"
                 )
 
                 for user_id in ALLOWED_USERS:
                     try:
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=text,
-                            parse_mode="HTML",
-                            disable_web_page_preview=False
-                        )
+                        await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=False)
                     except:
                         pass
-
-                print(f"Новая монета: {symbol}")
 
         except Exception as e:
             print("Ошибка мониторинга:", e)
@@ -123,8 +118,10 @@ async def process_buy(callback: CallbackQuery):
             async with session.get("https://api.coingecko.com/api/v3/search/trending", timeout=8) as r:
                 data = await r.json()
                 text += "<b>🔥 В тренде:</b>\n"
-                for item in data.get("coins", [])[:4]:
-                    text += f"• {item['item']['name']} (${item['item']['symbol'].upper()})\n"
+                for item in data.get("coins", [])[:5]:
+                    name = item["item"]["name"]
+                    symbol = item["item"]["symbol"].upper()
+                    text += f"• <a href='{tv_link(symbol)}'>{name} (${symbol})</a>\n"
                 text += "\n"
 
             url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=10&page=1"
@@ -135,12 +132,13 @@ async def process_buy(callback: CallbackQuery):
                 for coin in data:
                     change = coin.get('price_change_percentage_24h') or 0
                     if change > 3:
-                        text += f"• {coin['symbol'].upper()} +{change:.1f}%\n"
+                        symbol = coin['symbol'].upper()
+                        text += f"• <a href='{tv_link(symbol)}'>{symbol} +{change:.1f}%</a>\n"
                         count += 1
                         if count >= 5:
                             break
 
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_button())
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_button(), disable_web_page_preview=True)
     except:
         await callback.message.edit_text("Не удалось получить данные.", reply_markup=back_button())
 
@@ -160,14 +158,15 @@ async def process_sell(callback: CallbackQuery):
                 for coin in data:
                     change = coin.get('price_change_percentage_24h') or 0
                     if change < -3:
-                        text += f"• {coin['symbol'].upper()} {change:.1f}%\n"
+                        symbol = coin['symbol'].upper()
+                        text += f"• <a href='{tv_link(symbol)}'>{symbol} {change:.1f}%</a>\n"
                         count += 1
                         if count >= 6:
                             break
                 if count == 0:
                     text += "Сильных падений сейчас нет."
 
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_button())
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_button(), disable_web_page_preview=True)
     except:
         await callback.message.edit_text("Не удалось получить данные.", reply_markup=back_button())
 
@@ -189,24 +188,7 @@ async def process_new(callback: CallbackQuery):
                     for item in data.get("coins", [])[:5]:
                         name = item["item"]["name"]
                         symbol = item["item"]["symbol"].upper()
-                        text += f"• {name} (${symbol})\n"
-                    text += "\n"
-            except:
-                pass
-
-            # Boosts
-            try:
-                async with session.get("https://api.dexscreener.com/token-boosts/top/v1", timeout=8) as r:
-                    data = await r.json()
-                    text += "<b>🚀 Топ бусты :</b>\n"
-                    count = 0
-                    for item in data:
-                        if item.get("chainId") == "solana":
-                            addr = item.get("tokenAddress", "")
-                            text += f"• <code>{addr[:10]}...{addr[-6:]}</code>\n"
-                            count += 1
-                            if count >= 4:
-                                break
+                        text += f"• <a href='{tv_link(symbol)}'>{name} (${symbol})</a>\n"
                     text += "\n"
             except:
                 pass
@@ -221,15 +203,14 @@ async def process_new(callback: CallbackQuery):
                         if item.get("chainId") == "solana":
                             base = item.get("baseToken", {})
                             symbol = base.get("symbol", "???")
-                            addr = base.get("address", "")
-                            text += f"• <b>${symbol}</b> — <code>{addr[:8]}...</code>\n"
+                            text += f"• <a href='{tv_link(symbol)}'><b>${symbol}</b></a>\n"
                             count += 1
-                            if count >= 5:
+                            if count >= 6:
                                 break
             except:
                 pass
 
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_button())
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_button(), disable_web_page_preview=True)
     except:
         await callback.message.edit_text("Не удалось собрать данные.", reply_markup=back_button())
 
@@ -238,10 +219,7 @@ async def process_news(callback: CallbackQuery, state: FSMContext):
     if not await is_allowed(callback.from_user.id):
         return
     await callback.answer()
-    await callback.message.edit_text(
-        "Напиши тикер монеты (BTC, SOL, PEPE, WIF...):",
-        reply_markup=back_button()
-    )
+    await callback.message.edit_text("Напиши тикер монеты (BTC, SOL, PEPE, WIF...):", reply_markup=back_button())
     await state.set_state(NewsState.waiting_for_coin)
 
 @dp.message(NewsState.waiting_for_coin)
@@ -267,7 +245,7 @@ async def fallback(message: Message):
     await message.answer("Напиши /menu")
 
 async def main():
-    print("Бот запущен (меню + авто-уведомления + расширенные новые монеты)...")
+    print("Бот запущен...")
     asyncio.create_task(monitor_new_coins())
     await dp.start_polling(bot)
 
