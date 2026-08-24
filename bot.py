@@ -179,7 +179,7 @@ async def process_new(callback: CallbackQuery):
         return
     await callback.answer()
 
-    text = "🪙 <b>Новые монеты (Solana):</b>\n\n"
+    text = "🪙 <b>Новые монеты :</b>\n\n"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get("https://api.dexscreener.com/token-profiles/latest/v1", timeout=10) as r:
