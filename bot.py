@@ -65,7 +65,6 @@ async def process_buy(callback: CallbackQuery):
 
     try:
         async with aiohttp.ClientSession() as session:
-            # CoinGecko Trending (самое важное)
             async with session.get("https://api.coingecko.com/api/v3/search/trending", timeout=8) as r:
                 data = await r.json()
                 text += "<b>🔥 В тренде:</b>\n"
@@ -75,7 +74,6 @@ async def process_buy(callback: CallbackQuery):
                     text += f"• {name} (${symbol})\n"
                 text += "\n"
 
-            # Топ роста
             url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=5&page=1"
             async with session.get(url, timeout=8) as r:
                 data = await r.json()
@@ -86,7 +84,7 @@ async def process_buy(callback: CallbackQuery):
 
         await msg.edit_text(text, parse_mode="HTML", reply_markup=back_button())
     except:
-        await msg.edit_text("Не удалось получить данные. Попробуй позже.", reply_markup=back_button())
+        await msg.edit_text("Не удалось получить данные.", reply_markup=back_button())
 
 # ====================== ЧТО ПРОДАВАТЬ ======================
 @dp.callback_query(F.data == "sell")
@@ -140,14 +138,14 @@ async def process_new(callback: CallbackQuery):
     except:
         await msg.edit_text("Не удалось найти новые монеты.", reply_markup=back_button())
 
-# ====================== НОВОСТИ ======================
+# ====================== НОВОСТИ (ТОЛЬКО TWITTER) ======================
 @dp.callback_query(F.data == "news")
 async def process_news(callback: CallbackQuery, state: FSMContext):
     if not await is_allowed(callback.from_user.id):
         return
     await callback.answer()
     await callback.message.answer(
-        "Напиши тикер монеты (например: BTC, SOL, PEPE, WIF, BONK):",
+        "Напиши тикер монеты (BTC, SOL, PEPE, WIF...):",
         reply_markup=back_button()
     )
     await state.set_state(NewsState.waiting_for_coin)
@@ -161,11 +159,24 @@ async def get_news(message: Message, state: FSMContext):
     await state.clear()
 
     text = (
-        f"📰 <b>Новости и твиты по ${coin}</b>\n\n"
-        f"• <a href='https://twitter.com/search?q=%24{coin}&src=typed_query&f=live'>🔴 Живые твиты по ${coin}</a>\n\n"
-        f"• <a href='https://twitter.com/search?q=%24{coin}%20(from%3Aofficial%20OR%20owner%20OR%20founder%20OR%20dev)&f=live'>👤 От владельцев / dev / founders</a>\n\n"
-        f"• <a href='https://twitter.com/search?q=%24{coin}%20min_faves%3A50&f=live'>🔥 Популярные твиты</a>\n\n"
+        f"📰 <b>Твиты по ${coin}</b>\n\n"
+        f"• <a href='https://twitter.com/search?q=%24{coin}&src=typed_query&f=live'>🔴 Живые твиты</a>\n\n"
+        f"• <a href='https://twitter.com/search?q=%24{coin}%20(owner%20OR%20founder%20OR%20dev%20OR%20team)&f=live'>👤 От владельцев и dev</a>\n\n"
+        f"• <a href='https://twitter.com/search?q=%24{coin}%20min_faves%3A30&f=live'>🔥 Популярные твиты</a>\n\n"
         f"• <a href='https://twitter.com/search?q=%22{coin}%22%20crypto&f=live'>📢 Общий поиск</a>"
     )
 
     await message.answer(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_button())
+
+@dp.message()
+async def fallback(message: Message):
+    if not await is_allowed(message.from_user.id):
+        return
+    await message.answer("Напиши /menu")
+
+async def main():
+    print("Бот запущен...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
