@@ -1,112 +1,193 @@
 import asyncio
 import aiohttp
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
-import time
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 
 # ================== ТВОИ ДАННЫЕ ==================
 BOT_TOKEN = "8965399377:AAFy0_rgg8vNtm-Ta-HEPwhC9oy3MQYbPqM"
 
-# Два человека, которым будут приходить сообщения
-USERS = [
+ALLOWED_USERS = {
     6186773442,
     1122173232
-]
+}
 # ================================================
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
-seen = set()
+class NewsState(StatesGroup):
+    waiting_for_coin = State()
 
-async def check_tradingview_exists(symbol: str) -> bool:
-    url = f"https://symbol-search.tradingview.com/symbol_search/?text={symbol}&hl=1&exchange=&lang=en&search_type=undefined&domain=production&sort_by_country=false"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
+def main_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📈что покупать?", callback_data="buy")],
+        [InlineKeyboardButton(text="📉что продавать?", callback_data="sell")],
+        [InlineKeyboardButton(text="🪙Новые монеты", callback_data="new")],
+        [InlineKeyboardButton(text="📰Новости", callback_data="news")]
+    ])
+
+def back_button():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back")]
+    ])
+
+async def is_allowed(user_id: int) -> bool:
+    return user_id in ALLOWED_USERS
+
+@dp.message(Command("start", "menu"))
+async def cmd_menu(message: Message):
+    if not await is_allowed(message.from_user.id):
+        return await message.answer("Доступ закрыт.")
+    await message.answer("Выбери раздел:", reply_markup=main_menu())
+
+@dp.callback_query(F.data == "back")
+async def go_back(callback: CallbackQuery, state: FSMContext):
+    if not await is_allowed(callback.from_user.id):
+        return
+    await state.clear()
+    await callback.message.edit_text("Выбери раздел:", reply_markup=main_menu())
+    await callback.answer()
+
+# ====================== ЧТО ПОКУПАТЬ ======================
+@dp.callback_query(F.data == "buy")
+async def process_buy(callback: CallbackQuery):
+    if not await is_allowed(callback.from_user.id):
+        return
+    await callback.answer()
+    msg = await callback.message.answer("🔍 Собираю данные...")
+
+    text = "📈 <b>Что покупать:</b>\n\n"
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=10) as resp:
-                if resp.status != 200:
-                    return False
-                data = await resp.json()
+            # CoinGecko Trending (самое важное)
+            async with session.get("https://api.coingecko.com/api/v3/search/trending", timeout=8) as r:
+                data = await r.json()
+                text += "<b>🔥 В тренде:</b>\n"
+                for item in data.get("coins", [])[:4]:
+                    name = item["item"]["name"]
+                    symbol = item["item"]["symbol"].upper()
+                    text += f"• {name} (${symbol})\n"
+                text += "\n"
+
+            # Топ роста
+            url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=price_change_percentage_24h_desc&per_page=5&page=1"
+            async with session.get(url, timeout=8) as r:
+                data = await r.json()
+                text += "<b>📊 Сильный рост 24ч:</b>\n"
+                for coin in data[:4]:
+                    change = coin.get('price_change_percentage_24h') or 0
+                    text += f"• {coin['symbol'].upper()} +{change:.1f}%\n"
+
+        await msg.edit_text(text, parse_mode="HTML", reply_markup=back_button())
+    except:
+        await msg.edit_text("Не удалось получить данные. Попробуй позже.", reply_markup=back_button())
+
+# ====================== ЧТО ПРОДАВАТЬ ======================
+@dp.callback_query(F.data == "sell")
+async def process_sell(callback: CallbackQuery):
+    if not await is_allowed(callback.from_user.id):
+        return
+    await callback.answer()
+    msg = await callback.message.answer("🔍 Собираю данные...")
+
+    text = "📉 <b>Что лучше продать:</b>\n\n"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=price_change_percentage_24h_asc&per_page=6&page=1"
+            async with session.get(url, timeout=8) as r:
+                data = await r.json()
+                for coin in data[:5]:
+                    change = coin.get('price_change_percentage_24h') or 0
+                    text += f"• {coin['symbol'].upper()} {change:.1f}%\n"
+
+        await msg.edit_text(text, parse_mode="HTML", reply_markup=back_button())
+    except:
+        await msg.edit_text("Не удалось получить данные.", reply_markup=back_button())
+
+# ====================== НОВЫЕ МОНЕТЫ ======================
+@dp.callback_query(F.data == "new")
+async def process_new(callback: CallbackQuery):
+    if not await is_allowed(callback.from_user.id):
+        return
+    await callback.answer()
+    msg = await callback.message.answer("🔍 Ищу новые монеты...")
+
+    text = "🪙 <b>Новые монеты (Solana):</b>\n\n"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.dexscreener.com/token-profiles/latest/v1", timeout=10) as r:
+                data = await r.json()
+                count = 0
                 for item in data:
-                    item_symbol = item.get("symbol", "").upper()
-                    if item_symbol == symbol.upper() or item_symbol.startswith(symbol.upper()):
-                        return True
-                return False
-    except:
-        return False
+                    if item.get("chainId") == "solana":
+                        base = item.get("baseToken", {})
+                        symbol = base.get("symbol", "???")
+                        addr = base.get("address", "")
+                        text += f"• <b>${symbol}</b>\n<code>{addr}</code>\n\n"
+                        count += 1
+                        if count >= 5:
+                            break
 
-async def get_new_solana_pairs():
-    url = "https://api.dexscreener.com/token-profiles/latest/v1"
+        await msg.edit_text(text, parse_mode="HTML", reply_markup=back_button())
+    except:
+        await msg.edit_text("Не удалось найти новые монеты.", reply_markup=back_button())
+
+# ====================== НОВОСТИ ======================
+@dp.callback_query(F.data == "news")
+async def process_news(callback: CallbackQuery, state: FSMContext):
+    if not await is_allowed(callback.from_user.id):
+        return
+    await callback.answer()
+    await callback.message.answer("Напиши тикер (BTC, SOL, PEPE, WIF...):", reply_markup=back_button())
+    await state.set_state(NewsState.waiting_for_coin)
+
+@dp.message(NewsState.waiting_for_coin)
+async def get_news(message: Message, state: FSMContext):
+    if not await is_allowed(message.from_user.id):
+        return
+
+    coin = message.text.strip().upper()
+    await state.clear()
+
+    msg = await message.answer(f"🔍 Ищу новости по {coin}...")
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=12) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-                return [p for p in data if p.get("chainId") == "solana"]
+            url = f"https://cryptopanic.com/api/v1/posts/?auth_token=free&currencies={coin}&public=true"
+            async with session.get(url, timeout=10) as r:
+                data = await r.json()
+                results = data.get("results", [])
+
+                if not results:
+                    await msg.edit_text(f"Новостей по {coin} не найдено.", reply_markup=back_button())
+                    return
+
+                text = f"📰 <b>{coin}:</b>\n\n"
+                for post in results[:4]:
+                    title = post.get("title", "")[:70]
+                    link = post.get("url", "")
+                    text += f"• <a href='{link}'>{title}</a>\n"
+
+                await msg.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_button())
     except:
-        return []
+        await msg.edit_text("Не удалось получить новости.", reply_markup=back_button())
 
-async def monitor():
-    while True:
-        try:
-            pairs = await get_new_solana_pairs()
-            
-            for pair in pairs:
-                base = pair.get("baseToken", {})
-                symbol = base.get("symbol", "").upper().strip()
-                name = base.get("name", "Unknown")
-                address = base.get("address", "")
-                
-                if not symbol or len(symbol) < 2 or symbol in seen:
-                    continue
-                
-                exists = await check_tradingview_exists(symbol)
-                if not exists:
-                    continue
-                
-                seen.add(symbol)
-                
-                tv_link = f"https://www.tradingview.com/chart/?symbol={symbol}"
-                tv_link_alt = f"https://www.tradingview.com/symbols/{symbol}/"
-                
-                text = (
-                    f"🚀 <b>Монета появилась на TradingView!</b>\n\n"
-                    f"<b>{name}</b> (${symbol})\n"
-                    f"CA: <code>{address}</code>\n\n"
-                    f"<a href='{tv_link}'>📈 Открыть график на TradingView</a>\n"
-                    f"<a href='{tv_link_alt}'>🔗 Страница символа</a>"
-                )
-                
-                # Отправляем обоим
-                for user_id in USERS:
-                    try:
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=text,
-                            parse_mode="HTML",
-                            disable_web_page_preview=False
-                        )
-                    except Exception as e:
-                        print(f"Ошибка отправки {user_id}: {e}")
-                
-                print(f"Отправил: {symbol}")
-                
-        except Exception as e:
-            print("Ошибка:", e)
-        
-        await asyncio.sleep(40)
-
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.answer("Бот работает. Уведомления приходят автоматически.")
+@dp.message()
+async def fallback(message: Message):
+    if not await is_allowed(message.from_user.id):
+        return
+    await message.answer("Напиши /menu")
 
 async def main():
-    print("Бот запущен для двух пользователей...")
-    asyncio.create_task(monitor())
+    print("Бот запущен (краткие ответы)...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
