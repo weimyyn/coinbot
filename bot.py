@@ -41,7 +41,7 @@ def back_button():
 async def is_allowed(user_id: int) -> bool:
     return user_id in ALLOWED_USERS
 
-# ====================== АВТОМАТИЧЕСКИЕ НОВЫЕ МОНЕТЫ ======================
+# ====================== АВТО УВЕДОМЛЕНИЯ О НОВЫХ МОНЕТАХ ======================
 async def monitor_new_coins():
     while True:
         try:
@@ -65,17 +65,15 @@ async def monitor_new_coins():
 
                 name = base.get("name", "Unknown")
                 symbol = base.get("symbol", "???")
-                
-                # Пытаемся достать цену и изменение
-                price = item.get("priceUsd") or item.get("price") or "N/A"
-                change = item.get("priceChange", {}).get("h24") or item.get("priceChange24h") or "N/A"
+                price = item.get("priceUsd") or "N/A"
+                change = item.get("priceChange", {}).get("h24") if isinstance(item.get("priceChange"), dict) else "N/A"
 
                 text = (
                     f"🚀 <b>Новая монета!</b>\n\n"
                     f"<b>{name}</b> (${symbol})\n"
                     f"CA: <code>{address}</code>\n"
                     f"Цена: <b>{price}</b>\n"
-                    f"Изменение 24ч: <b>{change}%</b>\n\n"
+                    f"Изменение: <b>{change}%</b>\n\n"
                     f"<a href='https://dexscreener.com/solana/{address}'>📊 График DexScreener</a>\n"
                     f"<a href='https://www.tradingview.com/chart/?symbol={symbol}'>📈 TradingView</a>"
                 )
@@ -91,7 +89,7 @@ async def monitor_new_coins():
                     except:
                         pass
 
-                print(f"Новая монета отправлена: {symbol}")
+                print(f"Новая монета: {symbol}")
 
         except Exception as e:
             print("Ошибка мониторинга:", e)
@@ -179,24 +177,61 @@ async def process_new(callback: CallbackQuery):
         return
     await callback.answer()
 
-    text = "🪙 <b>Новые монеты :</b>\n\n"
+    text = "🪙 <b>Популярные и новые монеты:</b>\n\n"
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.dexscreener.com/token-profiles/latest/v1", timeout=10) as r:
-                data = await r.json()
-                count = 0
-                for item in data:
-                    if item.get("chainId") == "solana":
-                        base = item.get("baseToken", {})
-                        symbol = base.get("symbol", "???")
-                        addr = base.get("address", "")
-                        text += f"• <b>${symbol}</b>\n<code>{addr}</code>\n\n"
-                        count += 1
-                        if count >= 5:
-                            break
+            # Trending
+            try:
+                async with session.get("https://api.coingecko.com/api/v3/search/trending", timeout=8) as r:
+                    data = await r.json()
+                    text += "<b>🔥 Сейчас в тренде:</b>\n"
+                    for item in data.get("coins", [])[:5]:
+                        name = item["item"]["name"]
+                        symbol = item["item"]["symbol"].upper()
+                        text += f"• {name} (${symbol})\n"
+                    text += "\n"
+            except:
+                pass
+
+            # Boosts
+            try:
+                async with session.get("https://api.dexscreener.com/token-boosts/top/v1", timeout=8) as r:
+                    data = await r.json()
+                    text += "<b>🚀 Топ бусты :</b>\n"
+                    count = 0
+                    for item in data:
+                        if item.get("chainId") == "solana":
+                            addr = item.get("tokenAddress", "")
+                            text += f"• <code>{addr[:10]}...{addr[-6:]}</code>\n"
+                            count += 1
+                            if count >= 4:
+                                break
+                    text += "\n"
+            except:
+                pass
+
+            # Latest
+            try:
+                async with session.get("https://api.dexscreener.com/token-profiles/latest/v1", timeout=8) as r:
+                    data = await r.json()
+                    text += "<b>🆕 Самые новые:</b>\n"
+                    count = 0
+                    for item in data:
+                        if item.get("chainId") == "solana":
+                            base = item.get("baseToken", {})
+                            symbol = base.get("symbol", "???")
+                            addr = base.get("address", "")
+                            text += f"• <b>${symbol}</b> — <code>{addr[:8]}...</code>\n"
+                            count += 1
+                            if count >= 5:
+                                break
+            except:
+                pass
+
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_button())
     except:
-        await callback.message.edit_text("Не удалось найти новые монеты.", reply_markup=back_button())
+        await callback.message.edit_text("Не удалось собрать данные.", reply_markup=back_button())
 
 @dp.callback_query(F.data == "news")
 async def process_news(callback: CallbackQuery, state: FSMContext):
@@ -232,7 +267,7 @@ async def fallback(message: Message):
     await message.answer("Напиши /menu")
 
 async def main():
-    print("Бот запущен (меню + авто-уведомления)...")
+    print("Бот запущен (меню + авто-уведомления + расширенные новые монеты)...")
     asyncio.create_task(monitor_new_coins())
     await dp.start_polling(bot)
 
