@@ -157,49 +157,15 @@ async def get_news(message: Message, state: FSMContext):
     if not await is_allowed(message.from_user.id):
         return
 
-    coin = message.text.strip().upper()
+    coin = message.text.strip().upper().replace("$", "")
     await state.clear()
 
-    msg = await message.answer(f"🔍 Ищу новости по <b>{coin}</b>...", parse_mode="HTML")
+    text = (
+        f"📰 <b>Новости и твиты по ${coin}</b>\n\n"
+        f"• <a href='https://twitter.com/search?q=%24{coin}&src=typed_query&f=live'>🔴 Живые твиты по ${coin}</a>\n\n"
+        f"• <a href='https://twitter.com/search?q=%24{coin}%20(from%3Aofficial%20OR%20owner%20OR%20founder%20OR%20dev)&f=live'>👤 От владельцев / dev / founders</a>\n\n"
+        f"• <a href='https://twitter.com/search?q=%24{coin}%20min_faves%3A50&f=live'>🔥 Популярные твиты</a>\n\n"
+        f"• <a href='https://twitter.com/search?q=%22{coin}%22%20crypto&f=live'>📢 Общий поиск</a>"
+    )
 
-    text = f"📰 <b>Новости по {coin}:</b>\n\n"
-    found = False
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            # Попытка 1: CryptoPanic
-            try:
-                url = f"https://cryptopanic.com/api/v1/posts/?auth_token=free&currencies={coin}&public=true"
-                async with session.get(url, timeout=8) as r:
-                    if r.status == 200:
-                        data = await r.json()
-                        results = data.get("results", [])
-                        if results:
-                            found = True
-                            for post in results[:4]:
-                                title = post.get("title", "")[:65]
-                                link = post.get("url", "")
-                                text += f"• <a href='{link}'>{title}</a>\n"
-            except:
-                pass
-
-            # Если новостей нет — даём полезные ссылки
-            if not found:
-                text += "Прямые источники:\n\n"
-                text += f"• <a href='https://cryptopanic.com/news/{coin}/'>CryptoPanic</a>\n"
-                text += f"• <a href='https://www.coingecko.com/en/coins/{coin.lower()}'>CoinGecko</a>\n"
-                text += f"• <a href='https://news.google.com/search?q={coin}%20crypto&hl=ru'>Google News</a>\n"
-                text += f"• <a href='https://twitter.com/search?q=%24{coin}&f=live'>Twitter/X</a>\n"
-
-        await msg.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_button())
-
-    except Exception as e:
-        await msg.edit_text(
-            f"📰 По {coin}:\n\n"
-            f"• <a href='https://cryptopanic.com/news/{coin}/'>CryptoPanic</a>\n"
-            f"• <a href='https://news.google.com/search?q={coin}%20crypto'>Google News</a>\n"
-            f"• <a href='https://twitter.com/search?q=%24{coin}&f=live'>Twitter</a>",
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=back_button()
-        )
+    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_button())
